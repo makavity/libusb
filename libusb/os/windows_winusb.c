@@ -92,6 +92,8 @@ static enum libusb_transfer_status composite_copy_transfer_data(int sub_api, str
 
 static usbi_mutex_t autoclaim_lock;
 
+static uint16_t uint16_zero = (uint16_t)0;
+
 // API globals
 static struct winusb_interface WinUSBX[SUB_API_MAX];
 #define CHECK_WINUSBX_AVAILABLE(sub_api)		\
@@ -141,6 +143,61 @@ static char *normalize_path(const char *path)
 		*p = (char)toupper((unsigned char)*p);
 
 	return ret_path;
+}
+
+static bool str_startswith(const char* pre, const char* str) {
+	return strncmp(pre, str, strlen(pre)) == 0;
+}
+
+static char* int2hex(uint16_t num) {
+	char* hex = malloc(5);
+	sprintf(hex, "%x", num);
+	return hex;
+}
+
+static int is_blacklisted(char* vidhex, char* pidhex) {
+	char* sysdrive = getenv("HOMEDRIVE");
+	char* filepath = "\\libusb_blacklist.conf";
+	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath));
+	strcpy(full_file_path, sysdrive);
+	strcat(full_file_path, filepath);
+
+	FILE* fp = fopen(full_file_path, "r");
+
+	if (!fp) {
+		fprintf(stderr, "Failed to open %s\n", full_file_path);
+		return 0;
+	}
+
+	fseek(fp, 0L, SEEK_END);
+	ssize_t sz = ftell(fp);
+	rewind(fp);
+
+	char* contents = (char*)malloc(sz);
+
+	fgets(contents, sz, fp);
+
+	char* needle = (char*)malloc(strlen(vidhex) + strlen(pidhex) + 2);
+	strcpy(needle, vidhex);
+	strcat(needle, ":");
+	strcat(needle, pidhex);
+	bool result;
+	if (strlen(contents) >= 9) {
+		result = strstr(contents, needle) != NULL;
+	} else {
+		result = false;
+	}
+
+	if (needle) {
+		free(needle);
+	}
+
+	fclose(fp);
+
+	if (contents)
+		free(contents);
+
+	return result;
 }
 
 /*
@@ -1726,20 +1783,57 @@ static int winusb_get_device_list(struct libusb_context *ctx, struct discovered_
 				if (!pSetupDiGetDeviceRegistryPropertyA(*dev_info, &dev_info_data, SPDRP_ADDRESS,
 						NULL, (PBYTE)&port_nr, sizeof(port_nr), &size) || (size != sizeof(port_nr)))
 					usbi_warn(ctx, "could not retrieve port number for device '%s': %s", dev_id, windows_error_str(0));
-				r = init_device(dev, parent_dev, (uint8_t)port_nr, dev_info_data.DevInst);
-				if (r == LIBUSB_SUCCESS) {
-					// Append device to the list of discovered devices
-					discdevs = discovered_devs_append(*_discdevs, dev);
-					if (!discdevs)
-						LOOP_BREAK(LIBUSB_ERROR_NO_MEM);
+				
+				uint16_t vid = dev->device_descriptor.idVendor;
+				uint16_t pid = dev->device_descriptor.idProduct;
 
-					*_discdevs = discdevs;
+				char* vid_hex = malloc(5);
+				char* pid_hex = malloc(5);
+				strcpy(vid_hex, "0000\0");
+				strcpy(pid_hex, "0000\0");
+
+				if (vid == uint16_zero && pid == uint16_zero) {
+					//ugly parse vid-pid
+
+					if (str_startswith("USB\\VID_", dev_id)) {
+						vid_hex[4] = 0;
+						pid_hex[4] = 0;
+						/**
+						parse vid and pid from string that looks like USB\VID_0FE6&PID_811E\5&2033B54E&0&1
+						*/
+						strncpy(vid_hex, dev_id + 8, 4);
+						strncpy(pid_hex, dev_id + 8 + 4 + 1 + 4, 4);
+					} else {
+						usbi_warn(ctx, "Cannot parse vid and pid from %s, hoping this device is valid.", dev_id);
+					}
 				} else {
-					// Failed to initialize a single device doesn't stop us from enumerating all other devices,
-					// but we skip it (don't add to list of discovered devices)
-					usbi_warn(ctx, "failed to initialize device '%s'", priv->dev_id);
-					r = LIBUSB_SUCCESS;
+					vid_hex = int2hex(vid);
+					pid_hex = int2hex(pid);
 				}
+
+				bool is_blacklisted_check = is_blacklisted(vid_hex, pid_hex);
+
+				if (is_blacklisted_check) {
+					usbi_warn(ctx, "%s:%s is blacklisted, it will not be enumerated.", vid_hex, pid_hex);
+					r = LIBUSB_SUCCESS;
+				} else {
+					r = init_device(dev, parent_dev, (uint8_t)port_nr, dev_info_data.DevInst);
+					if (r == LIBUSB_SUCCESS) {
+						// Append device to the list of discovered devices
+						discdevs = discovered_devs_append(*_discdevs, dev);
+						if (!discdevs)
+							LOOP_BREAK(LIBUSB_ERROR_NO_MEM);
+
+						*_discdevs = discdevs;
+					} else {
+						// Failed to initialize a single device doesn't stop us from enumerating all other devices,
+						// but we skip it (don't add to list of discovered devices)
+						usbi_warn(ctx, "failed to initialize device '%s'", priv->dev_id);
+						r = LIBUSB_SUCCESS;
+					}
+				}
+				free(vid_hex);
+				free(pid_hex);
 				break;
 			default: // HID_PASS and later
 				if (parent_priv->apib->id == USB_API_HID || parent_priv->apib->id == USB_API_COMPOSITE) {
