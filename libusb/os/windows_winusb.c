@@ -94,6 +94,9 @@ static usbi_mutex_t autoclaim_lock;
 
 static uint16_t uint16_zero = (uint16_t)0;
 
+static char* winusb_blacklist;
+static bool winusb_blacklist_loaded = false;
+
 // API globals
 static struct winusb_interface WinUSBX[SUB_API_MAX];
 #define CHECK_WINUSBX_AVAILABLE(sub_api)		\
@@ -151,51 +154,79 @@ static bool str_startswith(const char* pre, const char* str) {
 
 static char* int2hex(uint16_t num) {
 	char* hex = malloc(5);
-	sprintf(hex, "%x", num);
+	sprintf(hex, "%X", num);
 	return hex;
 }
 
-static int is_blacklisted(char* vidhex, char* pidhex) {
+static void load_blacklist() {
+	
 	char* sysdrive = getenv("HOMEDRIVE");
 	char* filepath = "\\libusb_blacklist.conf";
 	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath));
 	strcpy(full_file_path, sysdrive);
 	strcat(full_file_path, filepath);
 
-	FILE* fp = fopen(full_file_path, "r");
+	FILE* fp = fopen(full_file_path, "rb");
+	//free(full_file_path);
+	//free(filepath);
+	//free(sysdrive);
 
 	if (!fp) {
-		fprintf(stderr, "Failed to open %s\n", full_file_path);
-		return 0;
+		//fprintf(stderr, "Blacklist file does not exists.\n");
+		return;
 	}
 
 	fseek(fp, 0L, SEEK_END);
 	ssize_t sz = ftell(fp);
 	rewind(fp);
-
-	char* contents = (char*)malloc(sz);
-
-	fgets(contents, sz, fp);
-
-	char* needle = (char*)malloc(strlen(vidhex) + strlen(pidhex) + 2);
-	strcpy(needle, vidhex);
-	strcat(needle, ":");
-	strcat(needle, pidhex);
-	bool result;
-	if (strlen(contents) >= 9) {
-		result = strstr(contents, needle) != NULL;
-	} else {
-		result = false;
-	}
-
-	if (needle) {
-		free(needle);
+	if (sz > 0) {
+		//fprintf(stderr, "Size of blacklist is >0, allocating & reading.\n");
+		winusb_blacklist = (char*)malloc(sz);
+		if (winusb_blacklist) {
+			//fprintf(stderr, "Blacklist allocated;\n");
+			fread(winusb_blacklist, sz, 1, fp);
+			winusb_blacklist[sz - 1] = '\0';
+			//fprintf(stderr, "Blacklist contents are:\n=>\n%s\n<=\n", winusb_blacklist);
+			winusb_blacklist_loaded = true;
+		}
 	}
 
 	fclose(fp);
+	
+}
 
-	if (contents)
-		free(contents);
+static void unload_blacklist() {
+	//fprintf(stderr, "Unloading blacklist\n");
+	if (winusb_blacklist_loaded) {
+		if (winusb_blacklist) {
+			free(winusb_blacklist);
+			//fprintf(stderr, "Blacklist unloaded\n");
+		}
+	}
+}
+
+static bool is_blacklisted(char* vidhex, char* pidhex) {
+	bool result = false;
+
+	if (!winusb_blacklist_loaded) {
+		return result;
+	}
+	
+	char* needle = (char*)malloc(strlen(vidhex) + strlen(pidhex) + 2);
+	if (needle) {
+		strcpy(needle, vidhex);
+		strcat(needle, ":");
+		strcat(needle, pidhex);
+		
+		if (strlen(winusb_blacklist) >= 9) {
+			//fprintf(stderr, "Checking if %s:%s is blacklisted\n", vidhex, pidhex);
+			result = strstr(winusb_blacklist, needle) != NULL;
+		} else {
+			result = false;
+		}
+
+		free(needle);
+	}
 
 	return result;
 }
@@ -714,7 +745,7 @@ static int winusb_init(struct libusb_context *ctx)
 
 	// We need a lock for proper auto-release
 	usbi_mutex_init(&autoclaim_lock);
-
+	load_blacklist();
 	return LIBUSB_SUCCESS;
 }
 
@@ -735,6 +766,7 @@ static void winusb_exit(struct libusb_context *ctx)
 	}
 
 	exit_dlls();
+	unload_blacklist();
 }
 
 /*
