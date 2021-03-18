@@ -153,12 +153,12 @@ static bool str_startswith(const char* pre, const char* str) {
 }
 
 static char* int2hex(uint16_t num) {
-	char* hex = malloc(5);
+	static char hex[5];
 	sprintf(hex, "%X", num);
 	return hex;
 }
 
-static void load_blacklist() {
+static void load_blacklist(void) {
 	
 	char* sysdrive = getenv("HOMEDRIVE");
 	char* filepath = "\\libusb_blacklist.conf";
@@ -195,7 +195,7 @@ static void load_blacklist() {
 	
 }
 
-static void unload_blacklist() {
+static void unload_blacklist(void) {
 	//fprintf(stderr, "Unloading blacklist\n");
 	if (winusb_blacklist_loaded) {
 		if (winusb_blacklist) {
