@@ -162,7 +162,7 @@ static void load_blacklist() {
 	
 	char* sysdrive = getenv("HOMEDRIVE");
 	char* filepath = "\\libusb_blacklist.conf";
-	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath));
+	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath) + 1);
 	strcpy(full_file_path, sysdrive);
 	strcat(full_file_path, filepath);
 
@@ -173,6 +173,7 @@ static void load_blacklist() {
 
 	if (!fp) {
 		//fprintf(stderr, "Blacklist file does not exists.\n");
+		free(full_file_path);
 		return;
 	}
 
@@ -181,7 +182,7 @@ static void load_blacklist() {
 	rewind(fp);
 	if (sz > 0) {
 		//fprintf(stderr, "Size of blacklist is >0, allocating & reading.\n");
-		winusb_blacklist = (char*)malloc(sz);
+		winusb_blacklist = (char*)malloc(sizeof(char) * sz);
 		if (winusb_blacklist) {
 			//fprintf(stderr, "Blacklist allocated;\n");
 			fread(winusb_blacklist, sz, 1, fp);
@@ -191,6 +192,7 @@ static void load_blacklist() {
 		}
 	}
 
+	free(full_file_path);
 	fclose(fp);
 	
 }
