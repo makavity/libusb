@@ -180,11 +180,11 @@ static void load_whitelist(void) {
     rewind(fp);
 
     if (sz > 0) {
-        winusb_blacklist = (char*)malloc(sizeof(char) * sz);
-        if (winusb_blacklist) {
-            fread(winusb_blacklist, sz, 1, fp);
-            winusb_blacklist[sz - 1] = '\0';
-            winusb_blacklist_loaded = true;
+        winusb_whitelist = (char*)malloc(sizeof(char) * sz);
+        if (winusb_whitelist) {
+            fread(winusb_whitelist, sz, 1, fp);
+            winusb_whitelist[sz - 1] = '\0';
+            winusb_whitelist_loaded = true;
         }
     }
 
@@ -1915,10 +1915,14 @@ static int winusb_get_device_list(struct libusb_context *ctx, struct discovered_
 					pid_hex = int2hex(pid);
 				}
 
-				bool is_blacklisted_check = is_blacklisted(vid_hex, pid_hex);
-				bool is_whitelisted_check = is_whitelisted(vid_hex, pid_hex);
+				if(winusb_whitelist_loaded) {
+                    is_blacklisted_check = !is_whitelisted(vid_hex, pid_hex)
+                }
+				else {
+                    is_blacklisted_check = is_blacklisted(vid_hex, pid_hex);
+                }
 
-				if (!is_blacklisted_check || !is_whitelisted_check) {
+				if (is_blacklisted_check) {
 					usbi_warn(ctx, "%s:%s is blacklisted, it will not be enumerated.", vid_hex, pid_hex);
 					r = LIBUSB_SUCCESS;
 				} else {
