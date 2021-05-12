@@ -97,6 +97,9 @@ static uint16_t uint16_zero = (uint16_t)0;
 static char* winusb_blacklist;
 static bool winusb_blacklist_loaded = false;
 
+static char* winusb_whitelist;
+static bool winusb_whitelist_loaded = false;
+
 // API globals
 static struct winusb_interface WinUSBX[SUB_API_MAX];
 #define CHECK_WINUSBX_AVAILABLE(sub_api)		\
@@ -153,16 +156,47 @@ static bool str_startswith(const char* pre, const char* str) {
 }
 
 static char* int2hex(uint16_t num) {
-	char* hex = malloc(5);
+	static char hex[5];
 	sprintf(hex, "%X", num);
 	return hex;
 }
 
-static void load_blacklist() {
+static void load_whitelist(void) {
+    char *sysdrive = getenv("HOMEDRIVE");
+    char *filepath = "\\libusb_whitelist.conf";
+    char *full_file_path = (char *) malloc(strlen(sysdirve) + strlen(filepath));
+    strcpy(full_file_path, sysdrive);
+    strcat(full_file_path, filepath);
+
+    FILE *fp = fopen(full_file_path, "rb");
+
+    if (!fp) {
+        free(full_file_path);
+        return;
+    }
+
+    fseek(fp, 0L, SEEK_END);
+    ssize_t sz = ftell(fp);
+    rewind(fp);
+
+    if (sz > 0) {
+        winusb_blacklist = (char*)malloc(sz);
+        if (winusb_blacklist) {
+            fread(winusb_blacklist, sz, 1, fp);
+            winusb_blacklist[sz - 1] = '\0';
+            winusb_blacklist_loaded = true;
+        }
+    }
+
+    free(full_file_path);
+    fclose(fp);
+}
+
+static void load_blacklist(void) {
 	
 	char* sysdrive = getenv("HOMEDRIVE");
 	char* filepath = "\\libusb_blacklist.conf";
-	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath) + 1);
+	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath));
 	strcpy(full_file_path, sysdrive);
 	strcat(full_file_path, filepath);
 
@@ -173,8 +207,8 @@ static void load_blacklist() {
 
 	if (!fp) {
 		//fprintf(stderr, "Blacklist file does not exists.\n");
-		free(full_file_path);
-		return;
+        free(full_file_path);
+        return;
 	}
 
 	fseek(fp, 0L, SEEK_END);
@@ -182,7 +216,7 @@ static void load_blacklist() {
 	rewind(fp);
 	if (sz > 0) {
 		//fprintf(stderr, "Size of blacklist is >0, allocating & reading.\n");
-		winusb_blacklist = (char*)malloc(sizeof(char) * sz);
+		winusb_blacklist = (char*)malloc(sz);
 		if (winusb_blacklist) {
 			//fprintf(stderr, "Blacklist allocated;\n");
 			fread(winusb_blacklist, sz, 1, fp);
@@ -192,12 +226,20 @@ static void load_blacklist() {
 		}
 	}
 
-	free(full_file_path);
+    free(full_file_path);
 	fclose(fp);
 	
 }
 
-static void unload_blacklist() {
+static void unload_whitelist(void) {
+    if (winusb_whitelist_loaded) {
+        if (winusb_whitelist) {
+            free(winusb_whitelist);
+        }
+    }
+}
+
+static void unload_blacklist(void) {
 	//fprintf(stderr, "Unloading blacklist\n");
 	if (winusb_blacklist_loaded) {
 		if (winusb_blacklist) {
@@ -231,6 +273,32 @@ static bool is_blacklisted(char* vidhex, char* pidhex) {
 	}
 
 	return result;
+}
+
+static bool is_whitelisted(char* vidhex, char* pidhex) {
+    bool result = false;
+
+    if (!winusb_whitelist_loaded) {
+        return result;
+    }
+
+    char *needle = (char *)malloc(strlen(vidhex) + strlen(pidhex) + 2);
+    if (needle) {
+        strcpy(needle, vidhex);
+        strcat(needle, ":");
+        strcat(needle, pidhex);
+
+        if (strlen(winusb_whitelist) >= 9) {
+            result = strstr(winusb_whitelist, needle) != NULL;
+        }
+        else {
+            result = false;
+        }
+
+        free(needle);
+    }
+
+    return result;
 }
 
 /*
@@ -748,6 +816,7 @@ static int winusb_init(struct libusb_context *ctx)
 	// We need a lock for proper auto-release
 	usbi_mutex_init(&autoclaim_lock);
 	load_blacklist();
+	load_whitelist();
 	return LIBUSB_SUCCESS;
 }
 
@@ -769,6 +838,7 @@ static void winusb_exit(struct libusb_context *ctx)
 
 	exit_dlls();
 	unload_blacklist();
+	unload_whitelist();
 }
 
 /*
@@ -1846,8 +1916,9 @@ static int winusb_get_device_list(struct libusb_context *ctx, struct discovered_
 				}
 
 				bool is_blacklisted_check = is_blacklisted(vid_hex, pid_hex);
+				bool is_whitelisted_check = is_whitelisted(vid_hex, pid_hex);
 
-				if (is_blacklisted_check) {
+				if (!is_blacklisted_check || !is_whitelisted_check) {
 					usbi_warn(ctx, "%s:%s is blacklisted, it will not be enumerated.", vid_hex, pid_hex);
 					r = LIBUSB_SUCCESS;
 				} else {
