@@ -164,7 +164,7 @@ static char* int2hex(uint16_t num) {
 static void load_whitelist(void) {
     char *sysdrive = getenv("HOMEDRIVE");
     char *filepath = "\\libusb_whitelist.conf";
-    char *full_file_path = (char *) malloc(strlen(sysdirve) + strlen(filepath));
+    char *full_file_path = (char *) malloc(strlen(sysdirve) + strlen(filepath) + 1);
     strcpy(full_file_path, sysdrive);
     strcat(full_file_path, filepath);
 
@@ -180,7 +180,7 @@ static void load_whitelist(void) {
     rewind(fp);
 
     if (sz > 0) {
-        winusb_blacklist = (char*)malloc(sz);
+        winusb_blacklist = (char*)malloc(sizeof(char) * sz);
         if (winusb_blacklist) {
             fread(winusb_blacklist, sz, 1, fp);
             winusb_blacklist[sz - 1] = '\0';
@@ -196,7 +196,7 @@ static void load_blacklist(void) {
 	
 	char* sysdrive = getenv("HOMEDRIVE");
 	char* filepath = "\\libusb_blacklist.conf";
-	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath));
+	char* full_file_path = (char*)malloc(strlen(sysdrive) + strlen(filepath) + 1);
 	strcpy(full_file_path, sysdrive);
 	strcat(full_file_path, filepath);
 
@@ -216,7 +216,7 @@ static void load_blacklist(void) {
 	rewind(fp);
 	if (sz > 0) {
 		//fprintf(stderr, "Size of blacklist is >0, allocating & reading.\n");
-		winusb_blacklist = (char*)malloc(sz);
+		winusb_blacklist = (char*)malloc(sizeof(char) * sz);
 		if (winusb_blacklist) {
 			//fprintf(stderr, "Blacklist allocated;\n");
 			fread(winusb_blacklist, sz, 1, fp);
