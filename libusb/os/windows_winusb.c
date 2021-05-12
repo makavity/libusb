@@ -164,7 +164,7 @@ static char* int2hex(uint16_t num) {
 static void load_whitelist(void) {
     char *sysdrive = getenv("HOMEDRIVE");
     char *filepath = "\\libusb_whitelist.conf";
-    char *full_file_path = (char *) malloc(strlen(sysdrive) + strlen(filepath) + 1);
+    char *full_file_path = (char *) (malloc(strlen(sysdrive) + strlen(filepath) + 1);
     strcpy(full_file_path, sysdrive);
     strcat(full_file_path, filepath);
 
@@ -1914,10 +1914,11 @@ static int winusb_get_device_list(struct libusb_context *ctx, struct discovered_
 					vid_hex = int2hex(vid);
 					pid_hex = int2hex(pid);
 				}
-				bool is_blacklisted_check;
+
 				if(winusb_whitelist_loaded) {
-					is_blacklisted_check = !is_whitelisted(vid_hex, pid_hex);
-                } else {
+                    is_blacklisted_check = !is_whitelisted(vid_hex, pid_hex)
+                }
+				else {
                     is_blacklisted_check = is_blacklisted(vid_hex, pid_hex);
                 }
 
